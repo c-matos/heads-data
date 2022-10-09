@@ -1,0 +1,830 @@
+---
+title: |
+   DATA * HEADS 22-26
+      [![image alt >2](./images/fmup.png)](https://sigarra.up.pt/fmup/en/web_page.inicial)
+      [![image alt >1](./images/heads.png)](https://heads.med.up.pt/en/)
+   
+subtitle: "Group Work"
+date: "2022/10/11"
+author:
+  - Bruno Figueiredo
+  - Carlos Matos
+  - João Almeida
+execute:
+  eval: true #runs the code in the chunk
+  echo: false #does not show the code in the final output
+  include: false #still evals, but prevents code and results from appearing in the final output
+format: 
+  html:
+    page-layout: full
+css: styles.css
+---
+
+
+```{r setup_chunk}
+
+knitr::opts_chunk$set(fig.width = 12, fig.height = 8)
+
+```
+
+
+# Dying all over the world: What changed over time and where does Portugal stand? {.main_header}
+
+::: panel-tabset
+### Introduction
+
+This report was made as part of the DATA class. The main goal was to deal with data cleaning and preparation issues, and carry out an exploratory data analysis. We were assigned the Global Burden of Disease database. We used the 2019 version, available at this [link](https://vizhub.healthdata.org/gbd-results/). <br>
+
+The theme that guided our work was *Dying all over the world: What changed over time and where does Portugal stand?* <br>
+
+More specifically, our overview answers the questions:
+
+* What are the main causes of death worldwide?
+* How have these causes changed over time?
+* How are these causes distributed across countries?
+
+* How does Portual compare with other countries?
+  + Over time?
+  + Across causes of death?
+* What are the main risk factors for the main causes of death in Portugal?
+
+
+
+### Initial Setup
+
+First we load all the necessary packages:
+
+```{r proxy, eval=FALSE}
+
+#If the code is run in a proxy enabled environment
+
+   #Sys.setenv(no_proxy="localhost,127.0.0.1")
+   # http_proxy="10.95.64.60:8080"
+   # https_proxy="10.95.64.60:8080"
+   # Sys.setenv(http_proxy = http_proxy)
+   # Sys.setenv(https_proxy = https_proxy)
+
+```
+
+```{r packages, echo = TRUE, include = TRUE, message = FALSE}
+
+#importing the necessary packages
+
+library(rio)          # Import function for multiple file formats
+library(tidyverse)    # Data wrangling and visualization
+library(scales)       # Number format functions 
+library(summarytools) # Easily explore data
+library(kableExtra)   # Display and format html tables
+library(janitor)      # Data examining and cleaning functions
+#library(plotly)       # Interactive charts
+library(RColorBrewer) # Choose color palettes for plots
+library(directlabels) # Better labels for ggplot
+library(DT)           # Interactive tables
+library(htmltools)    # helper functions to format DT tables
+#library(gganimate)   # Create dynamic ggplots 
+#library(magick)     # Generate GIFs and image processing
+
+```
+
+Then we import the data:
+
+```{r data_import, echo = TRUE, include = TRUE, message = FALSE}
+
+
+
+# GBD data
+# 3 files, with:
+
+## Level 2 causes
+## Metrics = Deaths, DALY
+## Metric types = Number, Percent, Rate
+## All countries and territories + global
+## Age-standardized and All ages
+## Sex = Both
+## Years 1990 to 2019
+
+# Names and ID were exported for grouping variables 
+data <- purrr::map_dfr(
+                  .x = paste0("./raw_data/gbd",1:4,".csv"),
+                  .f = ~ rio::import(file = .x, 
+                                     encoding = "UTF-8")) %>%  #without forcing encoding we get some errors (e.g. "CÃ´te d'Ivoire")
+        as_tibble()
+
+# Check internal structure of our dataset
+str(data)
+```
+
+```{r exploratory1, include = FALSE, echo = TRUE}
+
+cat(paste("We get a tibble (dataframe) with",scales::label_number()(nrow(data)),"rows and", scales::label_number()(ncol(data)),"columns"))
+
+```
+
+Then we convert the grouping variables to factor:
+
+```{r convert_to_factors, include = TRUE, echo = TRUE}
+
+#Converting all grouping and filter variables to factor
+data <- data %>%  
+  arrange(location_name, cause_name) %>% #Sorts to ensure countries and causes levels appear alphabetically
+  mutate(across(measure_id:metric_name, forcats::as_factor)) #converts relevant variables to factors
+
+#check if the conversion worked as expected
+str(data)
+
+```
+
+### Exploring our data
+
+Checking the levels for each grouping variable:
+
+```{r, testing, results='asis', include=TRUE, echo=FALSE}
+#Show what are the levels for all factor variables
+lv <- map(data %>% select(where(is.factor) & ends_with("name")), levels)
+
+template <- "<details><summary> %s </summary> %s </details>"
+  
+for (i in 1:length(lv)) {
+  cat(sprintf(template, names(lv[i]), kbl(lv[i], col.names = "", escape = T)))
+}
+
+
+```
+
+
+
+We quickly summarize our data with *summarytools* package:
+
+```{r explore_missings1, include = TRUE, echo=TRUE}
+
+#Checking for missing values
+data %>% 
+  select(!ends_with("id")) %>% #remove the id variables
+  summarytools::dfSummary(plain.ascii = FALSE,
+            style = "grid") %>% 
+  print(method = "render")
+
+
+
+```
+
+
+```{r, eval=FALSE}
+
+#Cheking for missing values
+data %>%
+  summarise(across(everything(), 
+                  ~ sum(is.na(.x)))) %>%  # count the number of NA values
+  pivot_longer(cols = everything())     # convert to column
+
+
+```
+
+
+No duplicates were detected.
+
+No missing values were detected.
+
+1) There are more rows with **Deaths** than **DALYs**, meaning there is some combination of variables for which no **Deaths** data is available.
+
+4) There are more rows with **All ages** than **Age-standardized**, meaning there is some combination of variables for which no **Age-standardized** data is available.
+
+6) There are more rows with **Rate** than other metrics, meaning there is some combination of variables for which no **Number** and **Percent** data is available.
+
+7) Only min and max are relevant for the year variable.
+
+8-10. **val**, **upper** and **lower** are not interpretable, because we are mixing metrics (number, percent and rates) and measures (deaths and DALYs).
+
+
+
+We need to check which combination of measures, ages and metrics are available:
+
+```{r explore_missings2, include = TRUE, echo=TRUE}
+
+# 3-way Crosstab
+janitor::tabyl(data, measure_name,age_name, metric_name)
+
+
+```
+
+We see that *Age-Standardized*'* values are only available for the **Rate** metric. 
+
+We see that there are more rows of DALYs than deaths, meaning that there are causes for which no deaths data are available. 
+
+Checking for causes which have no values for the *Deaths* metric:
+
+<!-- NOTE TO SELF: to add a blank line in R Markdown escape a white space (\ ) -->
+
+```{r test1, include = TRUE, echo=TRUE}
+
+
+map_dfr(janitor::tabyl(data, measure_name,metric_name, cause_name), 
+        ~ as_tibble(.x), .id="id") %>% 
+  filter(if_any(where(is.numeric), ~ .x == 0))
+
+
+```
+
+We see that the cause of death for which no data is available is *Sense organ diseases*.
+
+***In conclusion:***
+
+* *Age-standardized* data is only available for *Rates*
+* *Deaths* data is not available for *Sense organ diseases*, which may warrant precautions in some types of analyses (that will not be carried out in this report)
+
+
+### Over Time
+
+In this section we explore how death causes have changed over time.
+
+Firstly, we identify the causes of death with highest magnitude in 2019, to focus on those in our subsequent analyses:
+```{r, include=TRUE, echo=TRUE}
+
+data %>% 
+  filter(location_name=="Global",
+         year == 2019,
+         measure_name=="Deaths",
+         age_name=="All ages",
+         metric_name=="Rate") %>% #apply necessary filters to ensure logical consistency
+  arrange(desc(val)) %>%  #sort from highest to lowest
+  select(cause_name, val) 
+  
+```
+
+We selected the 5 causes with the highest magnitude:
+
+```{r,  include=TRUE, echo=TRUE}
+
+#Causes with highest death rate in 2019, globally
+main_causes <- c("Cardiovascular diseases",
+                 "Neoplasms",
+                 "Chronic respiratory diseases",
+                 "Respiratory infections and tuberculosis",
+                 "Diabetes and kidney diseases") %>% 
+  as_factor()
+
+
+```
+
+
+Secondly, we explored how the global number of deaths has changed over time:
+
+```{r plot1, include = TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+#Create a color scheme to use throughout the analysis
+my_colors <- RColorBrewer::brewer.pal(length(main_causes), 
+                                      name = "Set2")
+names(my_colors) <- main_causes
+
+
+#Plotting global deaths and DALYs over time
+data %>% 
+  filter(cause_name %in% main_causes,
+         location_name=="Global",
+         age_name=="All ages",
+         metric_name=="Number") %>% 
+  ggplot() +
+  geom_line(aes(x = year, y = val, color = cause_name), size=1) +
+  geom_ribbon(aes(x = year, ymin = lower, ymax = upper, fill = cause_name), alpha=0.25) +
+  labs(title = "Number of global deaths and DALYs over time",
+       x = "", y = "", color = "Death cause", fill="Death cause") + #Apply custom names to each plot component
+      scale_y_continuous(labels = scales::label_number(scale_cut = cut_short_scale()))+ #Display in millions   
+  scale_color_manual(values = my_colors) + #Apply custom colors
+  scale_fill_manual(values = my_colors) + #Apply custom colors
+  theme(legend.position = "bottom",
+        panel.background = element_rect(fill = NA),
+        panel.grid.major = element_line(colour = "lightgray"),
+        panel.grid.minor = element_line(colour = "grey90")) +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE),
+         color = guide_legend(nrow = 2, byrow = TRUE)) +
+  facet_wrap(~measure_name, scales = "free_y") # show separate plots for Deahts and DALYs
+
+
+```
+
+The pattern for deaths and DALYs over time is similar for most causes.
+
+* It's important to note that there is some correlation between these two measures, as some deaths are included in the DALYs measure (premature deaths), so in causes for which disease burden is mostly due to deaths, we expect a similar pattern.
+* For **Respiratory infections and tuberculosis**, the pattern for deaths and DALYs is very different, showing that the majority of disease burden is due to disability instead of deaths.
+* We also see that the DALYs for **Diabetes and kidney diseases** have been increasing at a quicker pace than for Chronic respiratory infections.
+
+
+Then we assessed the Proportion of deaths by each of the studied causes:
+
+```{r plot2, include = TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+#Add the extra color needed for "Other" causes of death
+my_colors2 <- c(my_colors, "Other"="gray")
+
+#Plot proportion of deaths by cause, over time
+data %>%
+  filter(location_name=="Global",
+         measure_name=="Deaths",
+         age_name=="All ages",
+         metric_name=="Percent") %>% 
+  mutate(causes_group = ifelse(as.character(cause_name) %in% main_causes,
+                               as.character(cause_name), 
+                               "Other")) %>%  # Create a variable with 5 main causes + Other
+  group_by(year, causes_group) %>% 
+  summarise(val = sum(val)) %>%  # Collapse all remaining causes into "Other"
+  ggplot()+
+  geom_col(aes(x = year, y = val, fill=fct_rev(fct_relevel(causes_group,"Other", after = Inf))), position = position_stack()) +
+  scale_y_continuous(labels = scales::percent_format(), breaks = seq(.1,1,.1), expand = c(0,0), sec.axis =dup_axis())+
+  scale_x_continuous(expand = c(0,0),breaks = seq(1990,2018,2)) +
+  scale_fill_manual(values = my_colors2) +
+  labs (title = "Proportion of deaths by cause", 
+        x="", y="", fill="Death cause") +
+  theme(legend.position = "bottom")
+
+```
+
+* Analyzing the proportion of global deaths by cause, we see that the 5 studied causes were responsible for just under 60% of deaths in 1990, while causing 70% of deaths in 2019. 
+* **Respiratory infections and tuberculosis** are the only cause where we see a clearly decreasing pattern.
+* **Neoplasms** appear to show the highest relative increase over time.
+
+
+
+
+Thirdly, we assessed the density estimation of death rates in all countries and territories, over time:
+
+![](./images/plot1.gif)
+
+<details>
+<summary>  Code to generate the GIF above </summary>
+
+```{r gif_code, eval=FALSE, echo=TRUE, include=TRUE}
+
+#NB: this code was run on  a separate file, and the output imported to the markdown report
+
+# Imports
+library(gganimate)    # Animated plots
+library(magick)       # Image processing
+
+causes_list <- c("Cardiovascular diseases",
+                 "Chronic respiratory diseases",
+                 "Neoplasms",
+                 "Respiratory infections and tuberculosis",
+                 "Diabetes and kidney diseases")
+
+# Parameters:
+p_measure = "Deaths"
+p_metric = "Rate"
+p_age = "Age-standardized"
+
+#Helper set, to include only global deaths for the selected parameters
+global_data <- data %>% 
+  filter(location_name=="Global",
+         measure_name==p_measure,
+         metric_name==p_metric,
+         age_name==p_age) %>% 
+  filter(cause_name %in% causes_list) %>% 
+  ungroup() %>% 
+  rename(year_global = year,
+         val_global = val,
+         upper_global = upper,
+         lower_global = lower,
+         cause_name = cause_name)
+
+#get the causes_list ordered (desc) by magnitude of global death rate
+lvl_2019 <- global_data %>% 
+  filter(year_global==2019) %>% 
+  arrange(-val_global) %>% 
+  select(cause_name) %>% 
+  map(as.character) %>% 
+  .[[1]] %>% 
+  str_wrap(width = 22) #!!
+
+#Choose a color palette for comparability
+my_colors <- RColorBrewer::brewer.pal(length(lvl_2019), name = "Set2")
+names(my_colors) <- lvl_2019
+
+#Helper dataset, for labeling purposes
+my_labs <- tibble(data %>% 
+                    group_by(cause_name, year) %>% 
+                    filter(metric_name==p_metric, 
+                           measure_name==p_measure, 
+                           age_name==p_age,
+                           cause_name %in% causes_list) %>% 
+                    filter(val==max(val)) %>% 
+                    group_by(cause_name) %>% 
+                    filter(val==(max(val))) %>% 
+                    ungroup() %>% 
+                    select(val, cause_name))  %>% 
+  mutate(cause_name = str_wrap(cause_name, width = 22)) %>% #!!
+  left_join(tibble(lvl_2019) %>% rowid_to_column(), by = c("cause_name"="lvl_2019")) %>% 
+  mutate(id2 = max(rowid) - rowid + 1) %>% 
+  mutate(val = 100*id2 + 400)
+
+
+#Anim1: boxplot + violin plot of death rate by country
+# sort causes by desc global death rate in 2019
+anim1 <- data %>% 
+  filter(location_name!="Global",
+         measure_name==p_measure,
+         metric_name==p_metric,
+         age_name==p_age) %>% 
+  filter(cause_name %in% causes_list) %>% 
+  mutate(cause_name = str_wrap(cause_name, width = 22)) %>% #!!
+  mutate(cause_name = fct_relevel(cause_name, rev(lvl_2019))) %>%  #sort causes
+  ggplot(aes(y=val, x = cause_name)) +  
+  geom_violin(aes(fill=cause_name), trim = T, scale = "area")+
+  geom_boxplot(width = 0.1, alpha=0.4)+
+  geom_text(data = my_labs, aes(label = cause_name, x = id2, y = val, color = cause_name)) +
+  coord_flip() +
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = NA),
+        panel.grid.major.x = element_line(colour = "lightgray"),
+        panel.grid.minor.x = element_line(colour = "grey90"),
+        plot.title = element_text(hjust = 0),
+        plot.subtitle = element_text(hjust = 0),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  scale_fill_manual(values = my_colors) +
+  scale_color_manual(values = my_colors) +
+  labs(title = "Distribution of death rate by country across main death causes",
+       subtitle = 'Year: {closest_state}',
+       x = "",
+       y = "Death Rate") +
+  transition_states(
+    year,
+    transition_length = 2,
+    state_length = 1) +
+  enter_fade() + 
+  exit_shrink() +
+  ease_aes('sine-in-out')
+
+
+
+# Time series with global death rates for the selected causes
+anim2 <- global_data %>% 
+  mutate(cause_name = str_wrap(cause_name, width = 22)) %>% #!!
+  mutate(cause_name = fct_relevel(cause_name, rev(lvl_2019))) %>% 
+  ggplot(aes(y=val_global, 
+             x = year_global, 
+             color = reorder(cause_name, desc(cause_name)),
+             shape = reorder(cause_name, desc(cause_name)))) +
+  scale_color_manual(values = my_colors) +
+  geom_line(size = 1.4)+
+  geom_point(size = 3) +
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = NA),
+        panel.grid.major.x = element_line(colour = "lightgray"),
+        panel.grid.minor.x = element_line(colour = "grey90")) +
+  labs(title = "Global deaths over time",
+       subtitle = 'Year: {frame_along}',
+       x = "",
+       y = "Death Rate",
+       color = "", shape = "") +
+  transition_reveal(year_global) +
+  enter_fade() + 
+  exit_shrink() +
+  ease_aes('sine-in-out')
+
+#set a number of frames similar in both anims
+anim1_gif <- animate(anim1, 
+                     nframes = 4 * length(unique(global_data$year_global)),
+                     width = 1400, height = 800, unit = "px", res = 200,
+                     end_pause = 20,
+                     renderer = magick_renderer())
+
+anim_save("anim1.gif", anim1_gif)
+
+anim2_gif <- animate(anim2, 
+                     nframes = 4 * length(unique(global_data$year_global)),
+                     width = 1400, height = 800, unit = "px", res = 200,
+                     end_pause = 20,
+                     renderer = magick_renderer())
+
+anim_save("anim2.gif", anim2_gif)
+
+#for some reason the last frame of anim2 is not as it should be
+# We need to manually correct it
+anim2_gif[100] <- anim2_gif[99]
+
+for (j in 100:120) {
+  anim2_gif[j] <- anim2_gif[99]
+}
+
+#Combine both plots in a single GIF
+i=1
+combined <- image_append(c(anim1_gif[i], anim2_gif[i]), stack = TRUE)
+new_gif <- image_flatten(combined)
+
+for (i in 2:120) {
+  combined <- magick::image_append(c(anim1_gif[i], anim2_gif[i]), stack = TRUE)
+  new_gif <- c(new_gif, combined)
+  
+}
+
+# Warning: may take a long time to generate
+image_write(new_gif, format="gif", path="plot2.gif")
+
+```
+
+</details>
+
+From the plots, we can see that:
+
+* Death rates are consistently decreasing for all analyzed causes, except **Diabetes and kidney diseases**.
+* **Chronic respiratory diseases** overtake Respiratory infections and tuberculosis as the 3<sup>rd</sup> leading cause of death in recent years.
+* We see the largest absolute decrease in death rates for **Cardiovascular diseases**.
+* The studied causes vary widely across countries, with outliers at the right tail of the density function (as expected, because it is impossible to have less than zero deaths). In 2019 and skewness was over 1 for all the studied causes (table below), and from the chart we can see that the years immediately before had even larger variation.
+* Not all causes appear to have the same variation across countries: **Cardiovascular diseases** show the largest absolute variation (Std. Dev = 141.89 for 2019), but **Respiratory infections and tuberculosis** have the highest coefficient of variation (CV = 1.06 for 2019) and skewness (2.52) (table below).
+* **Neoplasms**, despite having a few outliers over the years, have the most symmetric pattern from the studied causes.
+
+
+
+We calculated descriptive statistics for the year 2019:
+
+```{r dispersion_measures, include=TRUE, echo=TRUE}
+
+data %>%
+  filter(location_name!="Global", # By country. Must exclude global values.
+         measure_name=="Deaths",
+         year==2019, # For the latest year only
+         age_name=="Age-standardized",
+         metric_name=="Rate",
+         cause_name %in% main_causes) %>%
+  group_by(cause_name) %>% 
+  summarytools::descr(val, style = "rmarkdown") %>% 
+  print(method="render")
+
+```
+
+
+
+### Portugal
+
+In this section we analyze 
+
+First, we select data for Portugal only, and store it in a new object:
+
+```{r pt_init, include=TRUE, echo=TRUE}
+
+# Selecting only PT data, and storing in a new object
+pt <- data %>%
+  filter(location_name=="Portugal")
+
+```
+
+
+Then, we calculate *absolute* and *relative* change for **Deaths**, for all ages (Number and Percent), and age-standardized (Rates):
+
+```{r pt_rate_of_change, include=TRUE, echo=TRUE}
+
+# Calculate necessary variables for PT
+pt_variations <- pt %>% 
+  filter(measure_name=="Deaths",
+         year %in% c(1990, 2019)) %>% 
+  select(-upper, -lower) %>% 
+  pivot_wider(names_from = year, values_from = val) %>% # move the years to columns, to be easier to compute other variables
+  group_by(measure_name, age_name, cause_name) %>% 
+  mutate(abs_change = `2019` - `1990`, # calculate absolute change
+         rel_change = abs_change / `1990`) %>% # calculate relative change
+  ungroup() #best practices, to avoid problems later
+
+# Calculate necessary variables globally
+global_variations <- data %>%
+  filter(location_name=="Global") %>% 
+  filter(measure_name=="Deaths",
+         year %in% c(1990, 2019)) %>% 
+  select(-upper, -lower) %>% 
+  pivot_wider(names_from = year, values_from = val) %>% # move the years to columns, to be easier to compute other variables
+  group_by(measure_name, age_name, cause_name) %>% 
+  mutate(abs_change = `2019` - `1990`, # calculate absolute change
+         rel_change = abs_change / `1990`) %>% # calculate relative change
+  select(cause_name, metric_name, measure_name, age_name, `1990`, `2019`, abs_change, rel_change) %>%
+  rename(global_1990 = `1990`,
+         global_2019 = `2019`,
+         global_abs_change = abs_change,
+         global_rel_change = rel_change) %>% # Change names to avoid compatibility problems when joining with PT data
+  ungroup() #best practices, to avoid problems later
+
+```
+
+
+Analyzing the changes in number of deaths:
+
+```{r pt_number_changes, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+# helper object, to manually configure table header rows
+header_helper <- htmltools::withTags(table(
+  class="display",
+  thead(
+    tr(
+      th(rowspan = 2, "Causa"),
+      th(colspan = 4, class="text-center", "Portugal"),
+      th(colspan = 4, class="text-center", "Global"),
+    ),
+    tr(lapply(rep(c("1990","2019",paste("Abs.",as.character("\u0394")),paste("Rel.",as.character("\u0394"))),2),th))
+  )))
+
+# Metric being analyzed
+sel_metric <- "Number"
+
+# Table with absolute and relative changes in number of deaths
+pt_variations %>% 
+  filter(metric_name==sel_metric) %>% 
+  select(cause_name, `1990`, `2019`, abs_change, rel_change) %>% 
+  left_join(global_variations %>% 
+              filter(metric_name==sel_metric) %>%
+              ungroup() %>% 
+              select(cause_name, global_1990, global_2019, global_abs_change, global_rel_change)) %>% # join global and PT data
+  arrange(abs_change) %>% 
+  DT::datatable(container = header_helper, rownames = F, escape = FALSE) %>% 
+    #colnames = c("Causa",rep(c("1990","2019","Abs. Δ","Rel. Δ"),2))) %>%  # Interactive table
+  formatRound(c("1990","2019","abs_change", "global_1990","global_2019","global_abs_change"), digits = 0, mark = "") %>%
+  formatPercentage(c("rel_change","global_rel_change"), digits = 1, mark = "") 
+
+```
+
+From the table we see that in Portugal:
+
+* The causes with the largest ***absolute reduction*** in number of deaths were *Cardiovascular diseases*, *Transport injuries* and *Maternal and neonatal disorders*
+* The causes with the largest ***absolute increase*** in the number of deaths were *Neoplasms*, *Neurologic disorders* and *Respiratory infections and tuberculosis*.
+* The causes with the largest ***relative reduction*** in number of deaths were *Maternal and neonatal disorders*, *Transport injuries* and *Self-harm and interpersonal violence* (Excluding causes with <500 deaths in 1990).
+* The causes with the largest ***relative increase*** in the number of deaths were *Neurological disorders*, *Other non-communicable diseases* and *Respiratory infections and tuberculosis* (Excluding causes with <500 deaths in 1990).
+
+Comparing with global rates of change, we see that:
+
+* While deaths due to **Transport injuries** increased 7.5% globally, in Portugal there was a 70.4% decrease in the number of deaths.
+* While deaths due to **Cardiovascular diseases** increased 53.8% globally, in Portugal there was a 18.5% decrease in the number of deaths.
+* Deaths by **Respiratory infections and tuberculosis** increased in Portugal by moire than 100%, while decreaing globally by 28.3%
+
+
+However, as we are analyzing numbers, we cannot know how much of this variation is due to ***population ageing***
+
+
+Analyzing the changes as ***Proportional mortality***:
+
+```{r pt_percent_changes, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Metric being analyzed
+sel_metric <- "Percent"
+
+# Table with absolute and relative changes in proportion of deaths
+pt_variations %>% 
+  filter(metric_name==sel_metric) %>% 
+  select(cause_name, `1990`, `2019`, abs_change, rel_change) %>% 
+  left_join(global_variations %>% 
+              filter(metric_name==sel_metric) %>%
+              ungroup() %>% 
+              select(cause_name, global_1990, global_2019, global_abs_change, global_rel_change)) %>% # join global and PT data
+  arrange(abs_change) %>% 
+  mutate(abs_change = abs_change*100,
+         global_abs_change = global_abs_change*100) %>% 
+  DT::datatable(container = header_helper, rownames = F) %>% 
+    #colnames = c("Causa",rep(c("1990","2019","Abs. Δ","Rel. Δ"),2))) %>%  # Interactive table
+  formatPercentage(c("1990","2019", "global_1990","global_2019"), digits = 1, mark = "") %>%
+  formatPercentage(c("rel_change","global_rel_change"), digits = 1, mark = "") %>% 
+  formatCurrency(c("abs_change","global_abs_change"), currency = " pp", before = F)
+
+```
+
+Any particularly relevant conclusion? If not, remove the table
+
+
+
+
+Analyzing rates, we can control for the effects of population size and age structure:
+
+```{r pt_rate_changes, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Metric being analyzed
+sel_metric <- "Rate"
+
+# Table with absolute and relative changes in proportion of deaths
+pt_variations %>% 
+  filter(metric_name==sel_metric,
+         age_name=="Age-standardized") %>% # Don't forget to filter for age-standardized data!
+  select(cause_name, `1990`, `2019`, abs_change, rel_change) %>% 
+  left_join(global_variations %>% 
+              filter(metric_name==sel_metric,
+                     age_name=="Age-standardized") %>%# Don't forget to filter for age-standardized data!
+              ungroup() %>% 
+              select(cause_name, global_1990, global_2019, global_abs_change, global_rel_change)) %>% # join global and PT data
+  arrange(abs_change) %>% 
+  DT::datatable(container = header_helper, rownames = F) %>% 
+    #colnames = c("Causa",rep(c("1990","2019","Abs. Δ","Rel. Δ"),2))) %>%  # Interactive table
+  formatRound(c("1990","2019","abs_change", "global_1990","global_2019","global_abs_change"), digits = 1, mark = "") %>%
+  formatPercentage(c("rel_change","global_rel_change"), digits = 1, mark = "") 
+
+```
+
+From the table above we can see that:
+
+* In Portugal, **Neoplasms** are the main cause of death, while globally cardiovascular diseases have the highest age-standardized death rates
+* In Portugal, **Neurological disorders** are one of the top 5 leading causes of death, whilst being the 8<sup>th</sup> gloablly
+* Besides the causes of death already highlighted in the tables above, we see that *Digestive diseases*, *Unintentional injuries* and *Self-harm and interpersonal violence* have seen large reductions in death rates in Portugal.
+* It is important to note that only 5 causes show an increase in death rates in Portugal between 1990 and 2019, and none of those is of particularly high magnitude.
+* Based on this observations, we can infer that most of the increases seen in the first table for PT are likely due to population ageing.
+
+
+
+Plotting the change over time of the main death causes in Portugal:
+
+```{r pt_rate_plot, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+#Causes with highest death rate in 2019, in PT
+pt_main_causes <- c("Neoplasms", 
+                    "Cardiovascular diseases",
+                    "Respiratory infections and tuberculosis",
+                    "Diabetes and kidney diseases",
+                    "Neurological disorders",
+                    "Chronic respiratory diseases",
+                    "Digestive diseases") %>% 
+  as_factor()
+
+pt %>% 
+  filter(age_name=="Age-standardized",
+         metric_name=="Rate",
+         cause_name %in% pt_main_causes) %>% 
+  ggplot() +
+  geom_line(aes(x = year, y = val, color = cause_name), size=1) +
+  geom_ribbon(aes(x = year, ymin = lower, ymax = upper, fill = cause_name), alpha=0.25) +
+  labs(title = "Death rate and DALYs, in Portugal, over time",
+       x = "", y = "", color = "Death cause", fill="Death cause") + #Apply custom names to each plot component
+  scale_y_continuous(labels = scales::label_number(scale_cut = cut_short_scale()))+ #Display in thousands   
+  theme(legend.position = "bottom",
+        panel.background = element_rect(fill = NA),
+        panel.grid.major = element_line(colour = "lightgray"),
+        panel.grid.minor = element_line(colour = "grey90")) +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE),
+         color = guide_legend(nrow = 2, byrow = TRUE)) +
+  facet_wrap(~measure_name, scales = "free_y") # show separate plots for Deaths and DALYs
+
+```
+
+
+
+We check how age-standardized death rates in Portugal compare with other countries, for the main studied causes of death:
+
+```{r pt_compare_global, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+#helper object to use in the plot
+pt_stats <- pt %>% 
+  filter(measure_name=="Deaths",
+         year==2019,
+         age_name=="Age-standardized",
+         metric_name=="Rate", 
+         cause_name %in% main_causes) %>% 
+  mutate(id = row_number())
+
+#Create the plot
+data %>%
+  filter(location_name!="Global", # By country. Must exclude global values.
+         measure_name=="Deaths",
+         year==2019, # For the latest year only
+         age_name=="Age-standardized",
+         metric_name=="Rate", 
+         cause_name %in% main_causes) %>% 
+  group_by(cause_name) %>% 
+  summarise(stats = quantile(val, c(0,0.25,0.5,0.75,1)),
+            q = c("min","q1","median","q3","max")) %>% 
+  pivot_wider(names_from = q, values_from = stats) %>% 
+  ungroup() %>% 
+  mutate(id = row_number()) %>% 
+  ggplot(aes(group = cause_name)) + 
+  geom_rect(aes(xmin = min, xmax = max, ymin = id-0.2, ymax = id+0.2, fill = cause_name), alpha = 0.2) + 
+  geom_rect(aes(xmin = q1, xmax = q3, ymin = id-0.2, ymax = id+0.2, fill = cause_name), alpha = 0.5) +
+  geom_rect(aes(xmin = median - 1, xmax = median + 1, ymin = id-0.2, ymax = id+0.2), alpha = 0.9) +
+  geom_point(data = pt_stats, mapping = aes(x = val, y = id), color = "red", shape = 18, size = 3) +
+  geom_dl(aes(label = cause_name, x = max, y = id, color = cause_name), method = list(dl.trans(x = x + c(-5, rep(0.3,4))),fontface = "bold", "last.points", cex = 0.8)) +
+  labs(title = "Portuguese death rates compared to all countries",
+       caption = "Min-Max: Lighter colors. Q1-Q3: Darker colors.\nMedian: Black line. Portugal: Red dot.\n",
+       y="", x = "Age-standardized death rate") +
+  scale_x_continuous(expand = c(0,0), limits = c(0,1000)) +
+  theme(legend.position = "none",
+        axis.text.y=element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y=element_blank(),
+        axis.line.x = element_line(colour = "black"),
+        panel.background=element_blank())
+
+```
+
+
+
+### References
+
+
+Global Burden of Disease Collaborative Network.
+Global Burden of Disease Study 2019 (GBD 2019) Results.
+Seattle, United States: Institute for Health Metrics and Evaluation (IHME), 2020.
+Available from https://vizhub.healthdata.org/gbd-results/.
+
+
+
+
+
+:::
+
+```{r notes, eval = FALSE}
+
+
+##Interpretation notes
+
+### outliers are all on the top side, which makes sense, because "All happy families are alike, but every unhappy family is unhappy in its own way (Leo Tolstoy, Anna Karenina, 1878)", meaning that most countries with High SDI, which have lower mortality rates overall, share similar characteristics, "pulling" the mean down. on the other end of the spectrum, we may have a country wich a very specific combination of risk factors that causes it to have a death pattern from a specific cause that is very different from all others
+
+```
+
