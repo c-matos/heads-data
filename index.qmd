@@ -17,6 +17,9 @@ execute:
 format: 
   html:
     page-layout: full
+project:
+  type: website
+  output-dir: docs
 css: styles.css
 ---
 
