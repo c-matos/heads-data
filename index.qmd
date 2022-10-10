@@ -82,8 +82,8 @@ library(plotly)       # Interactive charts
 library(RColorBrewer) # Choose color palettes for plots
 library(directlabels) # Better labels for ggplot
 library(DT)           # Interactive tables
-library(htmltools)    # helper functions to format DT tables
-
+library(htmltools)    # Helper functions to format DT tables
+library(maps)         # World maps 
 
 ```
 
@@ -139,12 +139,16 @@ str(data)
 
 Checking the levels for each grouping variable:
 
-```{r, testing, results='asis', include=TRUE, echo=FALSE}
-#Show what are the levels for all factor variables
-lv <- map(data %>% select(where(is.factor) & ends_with("name")), levels)
+```{r, testing, results='asis', include=TRUE, echo=TRUE}
 
+#Get the levels for all factor variables (excluding id variables)
+# WRNING: if we use the maps library, we have to specify the package name below due to "map" being a duplicate function in purrr and maps libraries
+lv <- purrr::map(data %>% select(where(is.factor) & ends_with("name")), levels) 
+
+#Template to print collapsible html sections and use kableExtra to print in a friendly way
 template <- "<details><summary> %s </summary> %s </details>"
-  
+
+#loop over variables and print the output of each in a separate section
 for (i in 1:length(lv)) {
   cat(sprintf(template, names(lv[i]), kbl(lv[i], col.names = "", escape = T)))
 }
@@ -161,10 +165,10 @@ We quickly summarize our data with *summarytools* package:
 #Checking for missing values
 data %>% 
   select(!ends_with("id")) %>% #remove the id variables
-  summarytools::dfSummary(plain.ascii = FALSE,
-            style = "grid") %>% 
+  summarytools::dfSummary(
+    plain.ascii = FALSE,
+    style = "grid") %>% 
   print(method = "render")
-
 
 
 ```
@@ -174,8 +178,8 @@ data %>%
 
 #Cheking for missing values
 data %>%
-  summarise(across(everything(), 
-                  ~ sum(is.na(.x)))) %>%  # count the number of NA values
+  summarise(across(everything(),
+                   ~ sum(is.na(.x)))) %>%  # count the number of NA values
   pivot_longer(cols = everything())     # convert to column
 
 
@@ -203,7 +207,7 @@ We need to check which combination of measures, ages and metrics are available:
 ```{r explore_missings2, include = TRUE, echo=TRUE}
 
 # 3-way Crosstab
-janitor::tabyl(data, measure_name,age_name, metric_name)
+janitor::tabyl(data, measure_name, age_name, metric_name)
 
 
 ```
@@ -219,7 +223,7 @@ Checking for causes which have no values for the *Deaths* metric:
 ```{r test1, include = TRUE, echo=TRUE}
 
 
-map_dfr(janitor::tabyl(data, measure_name,metric_name, cause_name), 
+map_dfr(janitor::tabyl(data, measure_name, metric_name, cause_name), 
         ~ as_tibble(.x), .id="id") %>% 
   filter(if_any(where(is.numeric), ~ .x == 0))
 
@@ -245,11 +249,10 @@ data %>%
   filter(location_name=="Global",
          year == 2019,
          measure_name=="Deaths",
-         #age_name=="All ages",
          metric_name=="Rate") %>% #apply necessary filters to ensure logical consistency
   arrange(desc(val)) %>%  #sort from highest to lowest
   select(cause_name, val, age_name) %>% 
-  pivot_wider(names_from = "age_name", values_from="val") 
+  pivot_wider(names_from = "age_name", values_from="val") # Convert age_name to wide format to improve readability
   
 ```
 
@@ -557,11 +560,67 @@ data %>%
 
 ```
 
+We plotted a map for the main global death cause (Cardiovascular diseases) in 2019, to visually inspect for patterns in countries with similar characteristics:
+
+```{r maps_global, include=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Preparing the map object with our data
+global_map <- map_data("world") %>% # get world map data
+  left_join(data %>% #
+              filter(cause_name=="Cardiovascular diseases",
+                   measure_name=="Deaths",
+                   year==2019,
+                   age_name=="Age-standardized",
+                   metric_name=="Rate") %>% 
+              mutate(location_name = as.character(location_name)) %>% # Convert to character to match the two datasets
+              #We need to manually change the name of some countries due to differences in GPD and maps library data
+              mutate(location_name = case_when(
+                location_name == "United States of America" ~ "USA",
+                location_name == "United Kingdom" ~ "UK",
+                location_name == "Russian Federation" ~ "Russia",
+                location_name == "Czechia" ~ "Czech Republic",
+                location_name == "Republic of Korea" ~ "",
+                location_name == "Iran (Islamic Republic of)" ~ "Iran",
+                TRUE ~ location_name)) %>% 
+              select(location_name, val),
+            by = c("region"="location_name")) # Join by location name
+
+#calculate Min, Q1, Median, Q3 and Max to use as cutoffs in the map
+cutoffs <- data %>%
+  filter(location_name!="Global", # By country. Must exclude global values.
+         measure_name=="Deaths",
+         year==2019, # For the latest year only
+         age_name=="Age-standardized",
+         metric_name=="Rate", 
+         cause_name == "Cardiovascular diseases") %>% 
+  group_by(cause_name) %>% 
+  summarise(stats = quantile(val, c(0,0.25,0.5,0.75,1)),
+            q = c("min","q1","median","q3","max"))
+
+# World map
+ggplot(global_map) +
+  geom_polygon(aes(x=long, y = lat, group = group, fill=cut(val, cutoffs$stats)), color="black", alpha=1) +
+  scale_fill_brewer(palette = "OrRd", na.value = "white") +
+  labs(fill = "Quartiles") +
+  coord_fixed() + # keep aspect ratio
+  theme_void() +
+  theme(legend.position = "bottom",
+        panel.background = element_rect(fill="gray90"))
+
+```
+We see some identifiable patterns:
+
+* European (except Eastern European), North and South American countries are in the first quartile of cardiovascular death rates (age-standardized).
+* Eastern European, Central Asian and some North African and Southeast Asian island countries are in the fourth quartile.
+* China, India and most of the African continent are in the second and third quartiles.
+
+
+
 
 
 ### Portugal
 
-In this section we analyze 
+In this section we analyze the main causes of death for Portugal, comparing with global values. We also do a longitudinal analysis across the entire study period.
 
 First, we select data for Portugal only, and store it in a new object:
 
@@ -638,7 +697,6 @@ pt_variations %>%
               select(cause_name, global_1990, global_2019, global_abs_change, global_rel_change)) %>% # join global and PT data
   arrange(abs_change) %>% 
   DT::datatable(container = header_helper, rownames = F, escape = FALSE) %>% 
-    #colnames = c("Causa",rep(c("1990","2019","Abs. Δ","Rel. Δ"),2))) %>%  # Interactive table
   formatRound(c("1990","2019","abs_change", "global_1990","global_2019","global_abs_change"), digits = 0, mark = "") %>%
   formatPercentage(c("rel_change","global_rel_change"), digits = 1, mark = "") 
 
