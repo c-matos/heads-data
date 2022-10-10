@@ -31,14 +31,14 @@ knitr::opts_chunk$set(fig.width = 12, fig.height = 8)
 ```
 
 
-# Dying all over the world: What changed over time and where does Portugal stand? {.main_header}
+# Worldwide causes of death and disability from the global burden of diseases study, 1990-2019: What changed over time and where does Portugal stand? {.main_header}
 
 ::: panel-tabset
 ### Introduction
 
 This report was made as part of the DATA class. The main goal was to deal with data cleaning and preparation issues, and carry out an exploratory data analysis. We were assigned the Global Burden of Disease database. We used the 2019 version, available at this [link](https://vizhub.healthdata.org/gbd-results/). <br>
 
-The theme that guided our work was *Dying all over the world: What changed over time and where does Portugal stand?* <br>
+The theme that guided our work was *Worldwide causes of death and disability from the global burden of diseases study, 1990-2019: What changed over time and where does Portugal stand?* <br>
 
 More specifically, our overview answers the questions:
 
@@ -49,7 +49,6 @@ More specifically, our overview answers the questions:
 * How does Portual compare with other countries?
   + Over time?
   + Across causes of death?
-* What are the main risk factors for the main causes of death in Portugal?
 
 
 
@@ -79,13 +78,12 @@ library(scales)       # Number format functions
 library(summarytools) # Easily explore data
 library(kableExtra)   # Display and format html tables
 library(janitor)      # Data examining and cleaning functions
-#library(plotly)       # Interactive charts
+library(plotly)       # Interactive charts
 library(RColorBrewer) # Choose color palettes for plots
 library(directlabels) # Better labels for ggplot
 library(DT)           # Interactive tables
 library(htmltools)    # helper functions to format DT tables
-#library(gganimate)   # Create dynamic ggplots 
-#library(magick)     # Generate GIFs and image processing
+
 
 ```
 
@@ -188,7 +186,7 @@ No duplicates were detected.
 
 No missing values were detected.
 
-1) There are more rows with **Deaths** than **DALYs**, meaning there is some combination of variables for which no **Deaths** data is available.
+1) There are more rows with **DALYs** than **Deaths**, meaning there is some combination of variables for which no **Deaths** data is available.
 
 4) There are more rows with **All ages** than **Age-standardized**, meaning there is some combination of variables for which no **Age-standardized** data is available.
 
@@ -236,9 +234,9 @@ We see that the cause of death for which no data is available is *Sense organ di
 * *Deaths* data is not available for *Sense organ diseases*, which may warrant precautions in some types of analyses (that will not be carried out in this report)
 
 
-### Over Time
+### Global
 
-In this section we explore how death causes have changed over time.
+In this section we explore how death causes have changed globally over time.
 
 Firstly, we identify the causes of death with highest magnitude in 2019, to focus on those in our subsequent analyses:
 ```{r, include=TRUE, echo=TRUE}
@@ -247,10 +245,11 @@ data %>%
   filter(location_name=="Global",
          year == 2019,
          measure_name=="Deaths",
-         age_name=="All ages",
+         #age_name=="All ages",
          metric_name=="Rate") %>% #apply necessary filters to ensure logical consistency
   arrange(desc(val)) %>%  #sort from highest to lowest
-  select(cause_name, val) 
+  select(cause_name, val, age_name) %>% 
+  pivot_wider(names_from = "age_name", values_from="val") 
   
 ```
 
@@ -320,7 +319,7 @@ Then we assessed the Proportion of deaths by each of the studied causes:
 my_colors2 <- c(my_colors, "Other"="gray")
 
 #Plot proportion of deaths by cause, over time
-data %>%
+prop_plot <- data %>%
   filter(location_name=="Global",
          measure_name=="Deaths",
          age_name=="All ages",
@@ -330,14 +329,18 @@ data %>%
                                "Other")) %>%  # Create a variable with 5 main causes + Other
   group_by(year, causes_group) %>% 
   summarise(val = sum(val)) %>%  # Collapse all remaining causes into "Other"
+  mutate(causes_group=fct_rev(fct_relevel(causes_group,"Other", after = Inf))) %>% 
   ggplot()+
-  geom_col(aes(x = year, y = val, fill=fct_rev(fct_relevel(causes_group,"Other", after = Inf))), position = position_stack()) +
+  geom_col(aes(x = year, y = val, fill=causes_group,text = paste("Proportion:", scales::percent(val,accuracy = 0.1))), position = position_stack()) +
   scale_y_continuous(labels = scales::percent_format(), breaks = seq(.1,1,.1), expand = c(0,0), sec.axis =dup_axis())+
   scale_x_continuous(expand = c(0,0),breaks = seq(1990,2018,2)) +
   scale_fill_manual(values = my_colors2) +
   labs (title = "Proportion of deaths by cause", 
         x="", y="", fill="Death cause") +
   theme(legend.position = "bottom")
+
+ggplotly(prop_plot, tooltip = c("x","text","causes_group"))
+
 
 ```
 
@@ -652,15 +655,15 @@ Comparing with global rates of change, we see that:
 
 * While deaths due to **Transport injuries** increased 7.5% globally, in Portugal there was a 70.4% decrease in the number of deaths.
 * While deaths due to **Cardiovascular diseases** increased 53.8% globally, in Portugal there was a 18.5% decrease in the number of deaths.
-* Deaths by **Respiratory infections and tuberculosis** increased in Portugal by moire than 100%, while decreaing globally by 28.3%
+* Deaths by **Respiratory infections and tuberculosis** increased in Portugal by more than 100%, while decreaing globally by 28.3%
 
 
 However, as we are analyzing numbers, we cannot know how much of this variation is due to ***population ageing***
 
 
-Analyzing the changes as ***Proportional mortality***:
+<!-- Analyzing the changes as ***Proportional mortality***: -->
 
-```{r pt_percent_changes, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+```{r pt_percent_changes, include=FALSE, echo=FALSE, warning=FALSE, message=FALSE}
 
 # Metric being analyzed
 sel_metric <- "Percent"
@@ -684,8 +687,7 @@ pt_variations %>%
 
 ```
 
-Any particularly relevant conclusion? If not, remove the table
-
+<!-- Table not included in the analysis -->
 
 
 
@@ -807,27 +809,15 @@ data %>%
 ```
 
 
+We see that for the studied causes of death:
+
+* Portuguese age-standardized rates in 2019 are below the median for all causes, except *Neoplasms*.
+* For *Cardiovascular diseases*, the leading cause of death, Portugal is in the quartile of countries with lowest age-standardized death rates.
+
 
 ### References
 
 
-Global Burden of Disease Collaborative Network.
-Global Burden of Disease Study 2019 (GBD 2019) Results.
-Seattle, United States: Institute for Health Metrics and Evaluation (IHME), 2020.
-Available from https://vizhub.healthdata.org/gbd-results/.
-
-
-
-
+Global Burden of Disease Collaborative Network. Global Burden of Disease Study 2019 (GBD 2019) Results. Seattle, United States: Institute for Health Metrics and Evaluation (IHME), 2020. Available from https://vizhub.healthdata.org/gbd-results/.
 
 :::
-
-```{r notes, eval = FALSE}
-
-
-##Interpretation notes
-
-### outliers are all on the top side, which makes sense, because "All happy families are alike, but every unhappy family is unhappy in its own way (Leo Tolstoy, Anna Karenina, 1878)", meaning that most countries with High SDI, which have lower mortality rates overall, share similar characteristics, "pulling" the mean down. on the other end of the spectrum, we may have a country wich a very specific combination of risk factors that causes it to have a death pattern from a specific cause that is very different from all others
-
-```
-
