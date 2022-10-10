@@ -31,14 +31,14 @@ knitr::opts_chunk$set(fig.width = 12, fig.height = 8)
 ```
 
 
-# Worldwide causes of death and disability from the global burden of diseases study, 1990-2019: What changed over time and where does Portugal stand? {.main_header}
+# Worldwide causes of death and disability from the Global Burden of Diseases study, 1990-2019: What changed over time and where does Portugal stand? {.main_header}
 
 ::: panel-tabset
 ### Introduction
 
 This report was made as part of the DATA class. The main goal was to deal with data cleaning and preparation issues, and carry out an exploratory data analysis. We were assigned the Global Burden of Disease database. We used the 2019 version, available at this [link](https://vizhub.healthdata.org/gbd-results/). <br>
 
-The theme that guided our work was *Worldwide causes of death and disability from the global burden of diseases study, 1990-2019: What changed over time and where does Portugal stand?* <br>
+The theme that guided our work was *Worldwide causes of death and disability from the Global Burden of Diseases study, 1990-2019: What changed over time and where does Portugal stand?* <br>
 
 More specifically, our overview answers the questions:
 
@@ -812,7 +812,7 @@ data %>%
 We see that for the studied causes of death:
 
 * Portuguese age-standardized rates in 2019 are below the median for all causes, except *Neoplasms*.
-* For *Cardiovascular diseases*, the leading cause of death, Portugal is in the quartile of countries with lowest age-standardized death rates.
+* For *Cardiovascular diseases*, the leading cause of death globally, Portugal is in the quartile of countries with lowest age-standardized death rates.
 
 
 ### References
