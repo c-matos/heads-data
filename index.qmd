@@ -58,7 +58,7 @@ First we load all the necessary packages:
 
 ```{r proxy, eval=FALSE}
 
-#If the code is run in a proxy enabled environment
+# If the code is run in a proxy enabled environment
 
    #Sys.setenv(no_proxy="localhost,127.0.0.1")
    # http_proxy="10.95.64.60:8080"
@@ -70,7 +70,7 @@ First we load all the necessary packages:
 
 ```{r packages, echo = TRUE, include = TRUE, message = FALSE}
 
-#importing the necessary packages
+# Importing the necessary packages
 
 library(rio)          # Import function for multiple file formats
 library(tidyverse)    # Data wrangling and visualization
@@ -115,22 +115,16 @@ data <- purrr::map_dfr(
 str(data)
 ```
 
-```{r exploratory1, include = FALSE, echo = TRUE}
-
-cat(paste("We get a tibble (dataframe) with",scales::label_number()(nrow(data)),"rows and", scales::label_number()(ncol(data)),"columns"))
-
-```
-
 Then we convert the grouping variables to factor:
 
 ```{r convert_to_factors, include = TRUE, echo = TRUE}
 
-#Converting all grouping and filter variables to factor
+# Converting all grouping and filter variables to factor
 data <- data %>%  
   arrange(location_name, cause_name) %>% #Sorts to ensure countries and causes levels appear alphabetically
   mutate(across(measure_id:metric_name, forcats::as_factor)) #converts relevant variables to factors
 
-#check if the conversion worked as expected
+# Check if the conversion worked as expected
 str(data)
 
 ```
@@ -139,16 +133,16 @@ str(data)
 
 Checking the levels for each grouping variable:
 
-```{r, testing, results='asis', include=TRUE, echo=TRUE}
+```{r, show_levels, results='asis', include=TRUE, echo=TRUE}
 
-#Get the levels for all factor variables (excluding id variables)
-# WRNING: if we use the maps library, we have to specify the package name below due to "map" being a duplicate function in purrr and maps libraries
+# Get the levels for all factor variables (excluding id variables)
+# WARNING: if we use the maps library, we have to specify the package name below due to "map" being a duplicate function in purrr and maps libraries
 lv <- purrr::map(data %>% select(where(is.factor) & ends_with("name")), levels) 
 
-#Template to print collapsible html sections and use kableExtra to print in a friendly way
+# Template to print collapsible html sections and use kableExtra to print in a friendly way
 template <- "<details><summary> %s </summary> %s </details>"
 
-#loop over variables and print the output of each in a separate section
+# Loop over variables and print the output of each in a separate section
 for (i in 1:length(lv)) {
   cat(sprintf(template, names(lv[i]), kbl(lv[i], col.names = "", escape = T)))
 }
@@ -162,9 +156,9 @@ We quickly summarize our data with *summarytools* package:
 
 ```{r explore_missings1, include = TRUE, echo=TRUE}
 
-#Checking for missing values
+# Checking for missing values
 data %>% 
-  select(!ends_with("id")) %>% #remove the id variables
+  select(!ends_with("id")) %>% # Remove the id variables
   summarytools::dfSummary(
     plain.ascii = FALSE,
     style = "grid") %>% 
@@ -176,11 +170,11 @@ data %>%
 
 ```{r, eval=FALSE}
 
-#Cheking for missing values
+# Cheking for missing values
 data %>%
   summarise(across(everything(),
-                   ~ sum(is.na(.x)))) %>%  # count the number of NA values
-  pivot_longer(cols = everything())     # convert to column
+                   ~ sum(is.na(.x)))) %>%  # Count the number of NA values
+  pivot_longer(cols = everything())     # Convert to long format
 
 
 ```
@@ -222,9 +216,9 @@ Checking for causes which have no values for the *Deaths* metric:
 
 ```{r test1, include = TRUE, echo=TRUE}
 
-
+# Check cause * metric combinations with no data available, for each measure:
 map_dfr(janitor::tabyl(data, measure_name, metric_name, cause_name), 
-        ~ as_tibble(.x), .id="id") %>% 
+        ~ as_tibble(.x), .id = "id") %>% 
   filter(if_any(where(is.numeric), ~ .x == 0))
 
 
@@ -240,7 +234,7 @@ We see that the cause of death for which no data is available is *Sense organ di
 
 ### Global
 
-In this section we explore how death causes have changed globally over time.
+In this section we explore how death causes have changed globally over time, and how are they distributed across countries.
 
 Firstly, we identify the causes of death with highest magnitude in 2019, to focus on those in our subsequent analyses:
 ```{r, include=TRUE, echo=TRUE}
@@ -249,8 +243,8 @@ data %>%
   filter(location_name=="Global",
          year == 2019,
          measure_name=="Deaths",
-         metric_name=="Rate") %>% #apply necessary filters to ensure logical consistency
-  arrange(desc(val)) %>%  #sort from highest to lowest
+         metric_name=="Rate") %>% # Apply necessary filters to ensure logical consistency
+  arrange(desc(val)) %>%  # Sort from highest to lowest
   select(cause_name, val, age_name) %>% 
   pivot_wider(names_from = "age_name", values_from="val") # Convert age_name to wide format to improve readability
   
@@ -260,7 +254,7 @@ We selected the 5 causes with the highest magnitude:
 
 ```{r,  include=TRUE, echo=TRUE}
 
-#Causes with highest death rate in 2019, globally
+# Causes with highest death rate in 2019, globally
 main_causes <- c("Cardiovascular diseases",
                  "Neoplasms",
                  "Chronic respiratory diseases",
@@ -276,13 +270,13 @@ Secondly, we explored how the global number of deaths has changed over time:
 
 ```{r plot1, include = TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
-#Create a color scheme to use throughout the analysis
+# Create a color scheme to use throughout the analysis
 my_colors <- RColorBrewer::brewer.pal(length(main_causes), 
                                       name = "Set2")
 names(my_colors) <- main_causes
 
 
-#Plotting global deaths and DALYs over time
+# Plotting global deaths and DALYs over time
 data %>% 
   filter(cause_name %in% main_causes,
          location_name=="Global",
@@ -292,17 +286,17 @@ data %>%
   geom_line(aes(x = year, y = val, color = cause_name), size=1) +
   geom_ribbon(aes(x = year, ymin = lower, ymax = upper, fill = cause_name), alpha=0.25) +
   labs(title = "Number of global deaths and DALYs over time",
-       x = "", y = "", color = "Death cause", fill="Death cause") + #Apply custom names to each plot component
-      scale_y_continuous(labels = scales::label_number(scale_cut = cut_short_scale()))+ #Display in millions   
-  scale_color_manual(values = my_colors) + #Apply custom colors
-  scale_fill_manual(values = my_colors) + #Apply custom colors
+       x = "", y = "", color = "Death cause", fill="Death cause") + # Apply custom names to each plot component
+      scale_y_continuous(labels = scales::label_number(scale_cut = cut_short_scale()))+ # Display in millions   
+  scale_color_manual(values = my_colors) + # Apply custom colors
+  scale_fill_manual(values = my_colors) + # Apply custom colors
   theme(legend.position = "bottom",
         panel.background = element_rect(fill = NA),
         panel.grid.major = element_line(colour = "lightgray"),
         panel.grid.minor = element_line(colour = "grey90")) +
   guides(fill = guide_legend(nrow = 2, byrow = TRUE),
          color = guide_legend(nrow = 2, byrow = TRUE)) +
-  facet_wrap(~measure_name, scales = "free_y") # show separate plots for Deahts and DALYs
+  facet_wrap(~measure_name, scales = "free_y") # Show separate plots for Deahts and DALYs
 
 
 ```
@@ -318,10 +312,10 @@ Then we assessed the Proportion of deaths by each of the studied causes:
 
 ```{r plot2, include = TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
-#Add the extra color needed for "Other" causes of death
+# Add the extra color needed for "Other" causes of death
 my_colors2 <- c(my_colors, "Other"="gray")
 
-#Plot proportion of deaths by cause, over time
+# Plot proportion of deaths by cause, over time
 prop_plot <- data %>%
   filter(location_name=="Global",
          measure_name=="Deaths",
@@ -555,7 +549,7 @@ data %>%
          metric_name=="Rate",
          cause_name %in% main_causes) %>%
   group_by(cause_name) %>% 
-  summarytools::descr(val, style = "rmarkdown") %>% 
+  summarytools::descr(val, style = "rmarkdown") %>% # Descriptive statistics
   print(method="render")
 
 ```
@@ -573,7 +567,7 @@ global_map <- map_data("world") %>% # get world map data
                    age_name=="Age-standardized",
                    metric_name=="Rate") %>% 
               mutate(location_name = as.character(location_name)) %>% # Convert to character to match the two datasets
-              #We need to manually change the name of some countries due to differences in GPD and maps library data
+              # We need to manually change the name of some countries due to differences in GPD and maps library data
               mutate(location_name = case_when(
                 location_name == "United States of America" ~ "USA",
                 location_name == "United Kingdom" ~ "UK",
@@ -581,11 +575,21 @@ global_map <- map_data("world") %>% # get world map data
                 location_name == "Czechia" ~ "Czech Republic",
                 location_name == "Republic of Korea" ~ "",
                 location_name == "Iran (Islamic Republic of)" ~ "Iran",
+                location_name == "Venezuela (Bolivarian Republic of)" ~ "Venezuela",
+                location_name == "Bolivia (Plurinational State of)" ~ "Bolivia",
+                location_name == "United Republic of Tanzania" ~ "Tanzania",
+                location_name == "Côte d'Ivoire" ~ "Ivory Coast",
+                location_name == "Congo" ~ "Republic of Congo",
+                location_name == "Viet Nam" ~ "Vietnam",
+                location_name == "Lao People's Democratic Republic" ~ "Laos",
+                location_name == "Taiwan (Province of China)" ~ "Taiwan",
+                location_name == "Democratic People's Republic of Korea" ~ "North Korea",
+                location_name == "Republic of Korea" ~ "South Korea",
                 TRUE ~ location_name)) %>% 
               select(location_name, val),
-            by = c("region"="location_name")) # Join by location name
+            by = c("region"="location_name")) # Join by location name 
 
-#calculate Min, Q1, Median, Q3 and Max to use as cutoffs in the map
+# Calculate Min, Q1, Median, Q3 and Max to use as cutoffs in the map
 cutoffs <- data %>%
   filter(location_name!="Global", # By country. Must exclude global values.
          measure_name=="Deaths",
@@ -594,15 +598,16 @@ cutoffs <- data %>%
          metric_name=="Rate", 
          cause_name == "Cardiovascular diseases") %>% 
   group_by(cause_name) %>% 
-  summarise(stats = quantile(val, c(0,0.25,0.5,0.75,1)),
-            q = c("min","q1","median","q3","max"))
+  summarise(cutoff = quantile(val, c(0,0.25,0.5,0.75,1)),
+            q = c("min","q1","median","q3","max")) %>% 
+  mutate(cutoff = ifelse(q=="min", cutoff - 1, cutoff)) # Without this correction the lowest country doesn't appear filled
 
 # World map
 ggplot(global_map) +
-  geom_polygon(aes(x=long, y = lat, group = group, fill=cut(val, cutoffs$stats)), color="black", alpha=1) +
+  geom_polygon(aes(x=long, y = lat, group = group, fill=cut(val, cutoffs$cutoff)), color="black", alpha=1) +
   scale_fill_brewer(palette = "OrRd", na.value = "white") +
   labs(fill = "Quartiles") +
-  coord_fixed() + # keep aspect ratio
+  coord_fixed() + # Keep map aspect ratio
   theme_void() +
   theme(legend.position = "bottom",
         panel.background = element_rect(fill="gray90"))
@@ -612,7 +617,7 @@ We see some identifiable patterns:
 
 * European (except Eastern European), North and South American countries are in the first quartile of cardiovascular death rates (age-standardized).
 * Eastern European, Central Asian and some North African and Southeast Asian island countries are in the fourth quartile.
-* China, India and most of the African continent are in the second and third quartiles.
+* Southeast Asian mainland countries and most of the African continent are in the second and third quartiles.
 
 
 
@@ -642,11 +647,11 @@ pt_variations <- pt %>%
   filter(measure_name=="Deaths",
          year %in% c(1990, 2019)) %>% 
   select(-upper, -lower) %>% 
-  pivot_wider(names_from = year, values_from = val) %>% # move the years to columns, to be easier to compute other variables
+  pivot_wider(names_from = year, values_from = val) %>% # Move the years to columns, to be easier to compute other variables
   group_by(measure_name, age_name, cause_name) %>% 
-  mutate(abs_change = `2019` - `1990`, # calculate absolute change
-         rel_change = abs_change / `1990`) %>% # calculate relative change
-  ungroup() #best practices, to avoid problems later
+  mutate(abs_change = `2019` - `1990`, # Calculate absolute change
+         rel_change = abs_change / `1990`) %>% # Calculate relative change
+  ungroup() # Best practices, to avoid problems later
 
 # Calculate necessary variables globally
 global_variations <- data %>%
@@ -654,16 +659,16 @@ global_variations <- data %>%
   filter(measure_name=="Deaths",
          year %in% c(1990, 2019)) %>% 
   select(-upper, -lower) %>% 
-  pivot_wider(names_from = year, values_from = val) %>% # move the years to columns, to be easier to compute other variables
+  pivot_wider(names_from = year, values_from = val) %>% # Move the years to columns, to be easier to compute other variables
   group_by(measure_name, age_name, cause_name) %>% 
-  mutate(abs_change = `2019` - `1990`, # calculate absolute change
-         rel_change = abs_change / `1990`) %>% # calculate relative change
+  mutate(abs_change = `2019` - `1990`, # Calculate absolute change
+         rel_change = abs_change / `1990`) %>% # Calculate relative change
   select(cause_name, metric_name, measure_name, age_name, `1990`, `2019`, abs_change, rel_change) %>%
   rename(global_1990 = `1990`,
          global_2019 = `2019`,
          global_abs_change = abs_change,
          global_rel_change = rel_change) %>% # Change names to avoid compatibility problems when joining with PT data
-  ungroup() #best practices, to avoid problems later
+  ungroup() # Best practices, to avoid problems later
 
 ```
 
@@ -672,7 +677,7 @@ Analyzing the changes in number of deaths:
 
 ```{r pt_number_changes, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
 
-# helper object, to manually configure table header rows
+# Helper object, to manually configure table header rows
 header_helper <- htmltools::withTags(table(
   class="display",
   thead(
@@ -694,7 +699,7 @@ pt_variations %>%
   left_join(global_variations %>% 
               filter(metric_name==sel_metric) %>%
               ungroup() %>% 
-              select(cause_name, global_1990, global_2019, global_abs_change, global_rel_change)) %>% # join global and PT data
+              select(cause_name, global_1990, global_2019, global_abs_change, global_rel_change)) %>% # Join global and PT data
   arrange(abs_change) %>% 
   DT::datatable(container = header_helper, rownames = F, escape = FALSE) %>% 
   formatRound(c("1990","2019","abs_change", "global_1990","global_2019","global_abs_change"), digits = 0, mark = "") %>%
@@ -738,7 +743,6 @@ pt_variations %>%
   mutate(abs_change = abs_change*100,
          global_abs_change = global_abs_change*100) %>% 
   DT::datatable(container = header_helper, rownames = F) %>% 
-    #colnames = c("Causa",rep(c("1990","2019","Abs. Δ","Rel. Δ"),2))) %>%  # Interactive table
   formatPercentage(c("1990","2019", "global_1990","global_2019"), digits = 1, mark = "") %>%
   formatPercentage(c("rel_change","global_rel_change"), digits = 1, mark = "") %>% 
   formatCurrency(c("abs_change","global_abs_change"), currency = " pp", before = F)
@@ -765,10 +769,9 @@ pt_variations %>%
               filter(metric_name==sel_metric,
                      age_name=="Age-standardized") %>%# Don't forget to filter for age-standardized data!
               ungroup() %>% 
-              select(cause_name, global_1990, global_2019, global_abs_change, global_rel_change)) %>% # join global and PT data
+              select(cause_name, global_1990, global_2019, global_abs_change, global_rel_change)) %>% # Join global and PT data
   arrange(abs_change) %>% 
   DT::datatable(container = header_helper, rownames = F) %>% 
-    #colnames = c("Causa",rep(c("1990","2019","Abs. Δ","Rel. Δ"),2))) %>%  # Interactive table
   formatRound(c("1990","2019","abs_change", "global_1990","global_2019","global_abs_change"), digits = 1, mark = "") %>%
   formatPercentage(c("rel_change","global_rel_change"), digits = 1, mark = "") 
 
@@ -806,15 +809,15 @@ pt %>%
   geom_line(aes(x = year, y = val, color = cause_name), size=1) +
   geom_ribbon(aes(x = year, ymin = lower, ymax = upper, fill = cause_name), alpha=0.25) +
   labs(title = "Death rate and DALYs, in Portugal, over time",
-       x = "", y = "", color = "Death cause", fill="Death cause") + #Apply custom names to each plot component
-  scale_y_continuous(labels = scales::label_number(scale_cut = cut_short_scale()))+ #Display in thousands   
+       x = "", y = "", color = "Death cause", fill="Death cause") + # Apply custom names to each plot component
+  scale_y_continuous(labels = scales::label_number(scale_cut = cut_short_scale()))+ # Display in thousands   
   theme(legend.position = "bottom",
         panel.background = element_rect(fill = NA),
         panel.grid.major = element_line(colour = "lightgray"),
         panel.grid.minor = element_line(colour = "grey90")) +
   guides(fill = guide_legend(nrow = 2, byrow = TRUE),
          color = guide_legend(nrow = 2, byrow = TRUE)) +
-  facet_wrap(~measure_name, scales = "free_y") # show separate plots for Deaths and DALYs
+  facet_wrap(~measure_name, scales = "free_y") # Show separate plots for Deaths and DALYs
 
 ```
 
@@ -824,7 +827,7 @@ We check how age-standardized death rates in Portugal compare with other countri
 
 ```{r pt_compare_global, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
 
-#helper object to use in the plot
+# Helper object to use in the plot
 pt_stats <- pt %>% 
   filter(measure_name=="Deaths",
          year==2019,
@@ -833,7 +836,7 @@ pt_stats <- pt %>%
          cause_name %in% main_causes) %>% 
   mutate(id = row_number())
 
-#Create the plot
+# Create the plot
 data %>%
   filter(location_name!="Global", # By country. Must exclude global values.
          measure_name=="Deaths",
